@@ -10,8 +10,16 @@ import logging
 import sys
 
 from db.connection import get_conn, init_db
+from scrapers.base import BaseScraper
+from scrapers.lgbs import LgbsScraper
+from scrapers.pbfcm import PbfcmScraper
 
 log = logging.getLogger("run")
+
+DISTRESS_SCRAPERS: list[type[BaseScraper]] = [
+    PbfcmScraper,
+    LgbsScraper,
+]
 
 
 def main() -> int:
@@ -20,6 +28,8 @@ def main() -> int:
                         help="Mark all new rows as baseline; suppresses digest.")
     parser.add_argument("--no-email", action="store_true",
                         help="Skip sending emails.")
+    parser.add_argument("--only", default=None,
+                        help="Comma-separated scraper source names to run (e.g. 'pbfcm,lgbs').")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -29,12 +39,26 @@ def main() -> int:
 
     init_db()
 
+    only = set(s.strip() for s in args.only.split(",")) if args.only else None
+    results: dict[str, dict] = {}
+
     with get_conn() as conn:
-        # TODO: Phase 1 — lgbs, pbfcm
-        # TODO: Phase 2 — per-county trustee scrapers
-        # TODO: Phase 2b — auction.com
-        # TODO: Phase 3 — per-county probate scrapers
-        log.info("no scrapers registered yet; scaffold only")
+        for cls in DISTRESS_SCRAPERS:
+            inst = cls()
+            if only and inst.source not in only:
+                continue
+            log.info("running scraper: %s", inst.source)
+            try:
+                results[inst.source] = inst.run(conn, baseline=args.baseline)
+            except Exception:
+                log.exception("orchestrator caught scraper crash (should have been caught in .run)")
+                results[inst.source] = {"status": "failed", "error": "orchestrator-level crash"}
+
+    log.info("scraper results: %s", results)
+
+    # TODO: Phase 2 — per-county trustee scrapers
+    # TODO: Phase 2b — auction.com
+    # TODO: Phase 3 — per-county probate scrapers
 
     if args.no_email or args.baseline:
         log.info("skipping email (baseline=%s, no_email=%s)", args.baseline, args.no_email)
