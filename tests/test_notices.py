@@ -3,6 +3,7 @@ from parsers.notices import (
     extract_borrower,
     extract_original_principal,
     extract_sale_date,
+    is_past_sale,
 )
 
 
@@ -28,6 +29,38 @@ def test_sale_date_labeled():
 
 def test_sale_date_missing():
     assert extract_sale_date("no date here") is None
+
+
+def test_sale_date_tax_header_format():
+    assert extract_sale_date("JOHNSON COUNTY SALES FOR MAY 5, 2026") == "2026-05-05"
+
+
+def test_sale_date_prefers_latest_of_multiple():
+    # Republished/continued notice: original Feb date + rescheduled Jun date.
+    text = ("Original Date of Sale: February 3, 2026.\n"
+            "The sale is rescheduled. Sale Date: June 2, 2026.\n")
+    assert extract_sale_date(text) == "2026-06-02"
+
+
+def test_sale_date_dallas_ordinal_format():
+    # Dallas County uses 'Date: Tuesday, the 3rd day of March, 2026'.
+    text = "1. Date, Place, and Time of Sale:\nDate: Tuesday, the 3rd day of March, 2026\nTime: noon"
+    assert extract_sale_date(text) == "2026-03-03"
+
+
+def test_sale_date_ordinal_with_ofmonth_no_space():
+    # OCR sometimes joins 'of' + month: 'the 3rd day ofMarch, 2026'. Treat as
+    # no match for that variant; a later clean occurrence should still win.
+    text = ("Date: Tuesday, the 3rl! day ofMarch, 2026\n"
+            "Date: Tuesday, the 3rd day of March, 2026\n")
+    assert extract_sale_date(text) == "2026-03-03"
+
+
+def test_is_past_sale():
+    assert is_past_sale("2020-01-01", today="2026-04-22") is True
+    assert is_past_sale("2099-01-01", today="2026-04-22") is False
+    assert is_past_sale(None, today="2026-04-22") is False
+    assert is_past_sale("2026-04-22", today="2026-04-22") is False  # today = not past
 
 
 def test_original_principal():
