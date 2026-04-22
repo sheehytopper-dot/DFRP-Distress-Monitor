@@ -58,17 +58,47 @@ jobs:
           if [ "${{ inputs.no_email }}" = "true" ]; then ARGS="$ARGS --no-email"; fi
           python run.py $ARGS
 
+      - name: Dump scrape_runs to log
+        if: always()
+        run: |
+          if [ -f db/distress.db ]; then
+            python - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect("db/distress.db")
+          conn.row_factory = sqlite3.Row
+          print("\n=== scrape_runs ===")
+          for r in conn.execute("SELECT source, status, rows_found, rows_new, error_message FROM scrape_runs ORDER BY id"):
+              print(f"  {r['source']:<18} {r['status']:<8} found={r['rows_found']} new={r['rows_new']} {r['error_message'] or ''}")
+          print("\n=== distress_notices counts by source ===")
+          for r in conn.execute("SELECT source, COUNT(*) AS n FROM distress_notices GROUP BY source ORDER BY source"):
+              print(f"  {r['source']:<18} {r['n']}")
+          PY
+          else
+            echo "No db/distress.db present."
+          fi
+
+      - name: Upload db as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distress-db
+          path: db/distress.db
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Commit updated db to data branch
+        if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Use a worktree so main checkout stays clean.
           git fetch origin data:data 2>/dev/null || git branch data
           git worktree add ../data-wt data
           mkdir -p ../data-wt/db
           cp db/distress.db ../data-wt/db/distress.db
           cd ../data-wt
-          git add db/distress.db
+          # Force-add: main's .gitignore blocks db/distress.db, but on the
+          # data branch we explicitly want it committed.
+          git add -f db/distress.db
           if git diff --cached --quiet; then
             echo "No db changes."
           else
