@@ -13,12 +13,30 @@ from db.connection import get_conn, init_db
 from scrapers.base import BaseScraper
 from scrapers.lgbs import LgbsScraper
 from scrapers.pbfcm import PbfcmScraper
+from scrapers.trustee.collin import CollinTrustee
+from scrapers.trustee.dallas import DallasTrustee
+from scrapers.trustee.denton import DentonTrustee
+from scrapers.trustee.ellis import EllisTrustee
+from scrapers.trustee.johnson import JohnsonTrustee
+from scrapers.trustee.kaufman import KaufmanTrustee
+from scrapers.trustee.rockwall import RockwallTrustee
+from scrapers.trustee.tarrant import TarrantTrustee
 
 log = logging.getLogger("run")
 
 DISTRESS_SCRAPERS: list[type[BaseScraper]] = [
+    # Phase 1 — statewide
     PbfcmScraper,
     LgbsScraper,
+    # Phase 2 — per-county trustee notices
+    DallasTrustee,
+    TarrantTrustee,
+    CollinTrustee,
+    DentonTrustee,
+    RockwallTrustee,
+    KaufmanTrustee,
+    EllisTrustee,
+    JohnsonTrustee,
 ]
 
 
