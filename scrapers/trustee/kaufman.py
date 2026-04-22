@@ -1,11 +1,15 @@
 """Kaufman County — kaufmancounty.net.
 
-Kaufman publishes foreclosure listings on CivicPlus CMS pages keyed by
-year, e.g. /383/Foreclosures (current) and /628/Foreclosures-2025.
-Each page lists PDF notices as download links. We scrape the current
-year's page for PDF anchors.
+Kaufman puts foreclosure notices on a year-specific CivicEngage page
+(/658/Foreclosure-2026 for 2026). Each month's notice PDF is linked
+via DocumentCenter, e.g. /DocumentCenter/View/10354/6-June-2026.
+
+We visit both the generic /383/Foreclosures landing (which sometimes
+links to the current year page) and the year page directly, then grab
+every /DocumentCenter/View/* link and PDF anchor.
 """
 import logging
+import re
 import time
 from datetime import date
 from typing import Iterator
@@ -21,68 +25,70 @@ log = logging.getLogger(__name__)
 
 BASE = "https://www.kaufmancounty.net"
 
-# Known page IDs. If Kaufman adds a new year page we'll fall back to /383/Foreclosures.
-# First-Tuesday year matters because notices stay posted ~month; we try both.
-_CANDIDATES = [
-    "/383/Foreclosures",
-    f"/{{year_id}}/Foreclosures-{{year}}",  # e.g. /628/Foreclosures-2025
-]
+_DOC_RE = re.compile(r"/DocumentCenter/View/\d+", re.I)
 
 
 class KaufmanTrustee(TrusteeScraperBase):
     county = "kaufman"
 
     def fetch(self) -> Iterator[DistressRecord]:
-        current_year = date.today().year
-        pages = [
-            f"{BASE}/383/Foreclosures",
-            # Year-specific page ID is unknown until first run surfaces it.
-            # /383 is the evergreen landing; it usually links to the year page.
+        year = date.today().year
+        start_pages = [
+            f"{BASE}/{year - 2008}/Foreclosure-{year}",  # CivicEngage IDs trend linearly; fuzzy first guess
+            f"{BASE}/658/Foreclosure-{year}",            # known for 2026
+            f"{BASE}/628/Foreclosure-{year - 1}",        # known for 2025
+            f"{BASE}/383/Foreclosures",                  # evergreen landing
         ]
+        doc_links: list[str] = []
+        seen: set[str] = set()
+        landing_failures = 0
+        attempted = 0
 
-        pdf_links: list[str] = []
-        failures = 0
-        for page in pages:
+        for page_url in start_pages:
+            attempted += 1
             try:
-                r = self.session.get(page, timeout=30)
+                r = self.session.get(page_url, timeout=30)
                 r.raise_for_status()
             except Exception as e:
-                log.warning("kaufman page %s failed: %s", page, e)
-                failures += 1
+                log.warning("kaufman page %s failed: %s", page_url, e)
+                landing_failures += 1
                 continue
             soup = BeautifulSoup(r.text, "lxml")
             for a in soup.find_all("a", href=True):
                 href = a["href"]
-                if href.lower().endswith(".pdf"):
-                    pdf_links.append(urljoin(page, href))
-                # Follow links to year-specific foreclosure pages.
-                elif "Foreclosures" in href and str(current_year) in href:
-                    pages.append(urljoin(page, href))
+                if _DOC_RE.search(href) or href.lower().endswith(".pdf"):
+                    full = urljoin(page_url, href)
+                    if full not in seen:
+                        seen.add(full)
+                        doc_links.append(full)
 
-        pdf_links = list(dict.fromkeys(pdf_links))  # de-dup, preserve order
-        if failures == len(pages) and not pdf_links:
+        if landing_failures == attempted:
             raise RuntimeError("kaufman: every landing page fetch failed")
-        if not pdf_links:
-            raise RuntimeError("kaufman: no PDF notices discovered on any page")
+        if not doc_links:
+            raise RuntimeError("kaufman: no notice PDFs discovered on any page")
 
-        log.info("kaufman: %d PDF notices", len(pdf_links))
-        pdf_failures = 0
-        for pdf_url in pdf_links:
+        log.info("kaufman: %d candidate notice documents", len(doc_links))
+        failures = 0
+        for url in doc_links:
             time.sleep(self.throttle_s)
             try:
-                resp = self.session.get(pdf_url, timeout=60)
+                resp = self.session.get(url, timeout=60)
                 resp.raise_for_status()
-                text = extract_text(resp.content)
+                if resp.content[:4] == b"%PDF":
+                    text = extract_text(resp.content)
+                else:
+                    # DocumentCenter sometimes redirects / wraps; try to pull the inner PDF
+                    text = BeautifulSoup(resp.text, "lxml").get_text("\n", strip=True)
             except Exception as e:
-                log.warning("kaufman pdf %s failed: %s", pdf_url, e)
-                pdf_failures += 1
+                log.warning("kaufman doc %s failed: %s", url, e)
+                failures += 1
                 continue
             rec = build_record(
                 source=self.source, county=self.county,
-                notice_url=pdf_url, notice_text=text,
+                notice_url=url, notice_text=text,
             )
             if rec:
                 yield rec
 
-        if pdf_failures == len(pdf_links):
-            raise RuntimeError("kaufman: every PDF fetch failed")
+        if failures == len(doc_links):
+            raise RuntimeError("kaufman: every document fetch failed")
