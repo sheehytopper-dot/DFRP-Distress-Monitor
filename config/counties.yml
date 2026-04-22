@@ -1,0 +1,84 @@
+counties:
+  dallas:
+    display_name: Dallas
+    trustee:
+      enabled: true
+      module: scrapers.trustee.dallas
+    probate:
+      enabled: true
+      module: scrapers.probate.dallas
+  tarrant:
+    display_name: Tarrant
+    trustee:
+      enabled: true
+      module: scrapers.trustee.tarrant
+    probate:
+      enabled: true
+      module: scrapers.probate.tarrant
+  collin:
+    display_name: Collin
+    trustee:
+      enabled: true
+      module: scrapers.trustee.collin
+    probate:
+      enabled: true
+      module: scrapers.probate.collin
+  denton:
+    display_name: Denton
+    trustee:
+      enabled: true
+      module: scrapers.trustee.denton
+    probate:
+      enabled: true
+      module: scrapers.probate.denton
+  rockwall:
+    display_name: Rockwall
+    trustee:
+      enabled: true
+      module: scrapers.trustee.rockwall
+    probate:
+      enabled: true
+      module: scrapers.probate.rockwall
+  kaufman:
+    display_name: Kaufman
+    trustee:
+      enabled: true
+      module: scrapers.trustee.kaufman
+    probate:
+      enabled: true
+      module: scrapers.probate.kaufman
+  ellis:
+    display_name: Ellis
+    trustee:
+      enabled: true
+      module: scrapers.trustee.ellis
+    probate:
+      enabled: true
+      module: scrapers.probate.ellis
+  johnson:
+    display_name: Johnson
+    trustee:
+      enabled: true
+      module: scrapers.trustee.johnson
+    probate:
+      enabled: true
+      module: scrapers.probate.johnson
+  hunt:
+    display_name: Hunt
+    trustee:
+      enabled: false
+      module: null
+    probate:
+      enabled: true
+      module: scrapers.probate.hunt
+
+statewide:
+  lgbs:
+    enabled: true
+    module: scrapers.lgbs
+  pbfcm:
+    enabled: true
+    module: scrapers.pbfcm
+  auction_com:
+    enabled: true
+    module: scrapers.auction_com

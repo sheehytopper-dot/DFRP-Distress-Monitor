@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# DB lives on the `data` branch in production, never main.
+db/distress.db
+db/distress.db-wal
+db/distress.db-shm
+
+# Local Playwright downloads.
+.playwright/
