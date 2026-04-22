@@ -20,6 +20,7 @@ from parsers.notices import (
     extract_borrower,
     extract_original_principal,
     extract_sale_date,
+    is_past_sale,
 )
 from parsers.property_type import classify
 from scrapers.base import BaseScraper, DistressRecord
@@ -65,6 +66,11 @@ def build_record(
     if amount is None or amount < DISTRESS_MIN_USD:
         return None
 
+    sale_date = extract_sale_date(notice_text)
+    if is_past_sale(sale_date):
+        log.debug("dropping past sale %s for %s", sale_date, notice_url)
+        return None
+
     address = extract_address(notice_text)
     ptype = classify(notice_text)
     source_id = hashlib.sha1(notice_url.encode()).hexdigest()[:16]
@@ -78,7 +84,7 @@ def build_record(
         property_type=ptype,
         amount_usd=amount,
         amount_kind="original_loan_proxy",
-        sale_date=extract_sale_date(notice_text),
+        sale_date=sale_date,
         raw_text=notice_text[:8000],
         extra={
             "labeled_principal": labeled_principal,

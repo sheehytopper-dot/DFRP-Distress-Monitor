@@ -13,15 +13,15 @@ def test_county_from_link_text():
 
 
 def test_passes_filter_threshold():
-    assert _passes_filter(2_000_000, "unknown") is True
-    assert _passes_filter(1_999_999, "unknown") is False
-    assert _passes_filter(None, "unknown") is False
+    assert _passes_filter(2_000_000) is True
+    assert _passes_filter(1_999_999) is False
+    assert _passes_filter(None) is False
 
 
-def test_passes_filter_commercial_type_overrides_amount():
-    assert _passes_filter(100_000, "commercial") is True
-    assert _passes_filter(None, "land") is True
-    assert _passes_filter(None, "residential") is False
+def test_passes_filter_does_not_accept_low_amount_regardless_of_type():
+    # The old behavior accepted any commercial-typed block, which picked
+    # up disclaimer boilerplate. New behavior requires a real amount signal.
+    assert _passes_filter(100_000) is False
 
 
 def test_guess_address():

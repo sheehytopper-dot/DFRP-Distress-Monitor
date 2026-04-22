@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 
 from config.settings import COMMERCIAL_TYPES, DISTRESS_MIN_USD
 from parsers.amounts import find_all_amounts, largest_amount
+from parsers.notices import extract_sale_date, is_past_sale
 from parsers.pdf import extract_text, split_into_property_blocks
 from parsers.property_type import classify
 from scrapers.base import BaseScraper, DistressRecord
@@ -104,11 +105,19 @@ class PbfcmScraper(BaseScraper):
             log.info("pbfcm no text extracted: %s", pdf_url)
             return
 
+        # Tax-sale PDFs state the sale date once in the header, e.g. "JOHNSON
+        # COUNTY SALES FOR MAY 5, 2026". Parse it once and apply to every
+        # property; skip the PDF outright if the sale already happened.
+        pdf_sale_date = extract_sale_date(text)
+        if is_past_sale(pdf_sale_date):
+            log.info("pbfcm skip past-sale PDF %s (date=%s)", pdf_url, pdf_sale_date)
+            return
+
         for block in split_into_property_blocks(text):
             largest = largest_amount(block)
-            ptype = classify(block)
-            if not _passes_filter(largest, ptype):
+            if not _passes_filter(largest):
                 continue
+            ptype = classify(block)
 
             source_id = _stable_id(pdf_url, block)
             yield DistressRecord(
@@ -120,18 +129,17 @@ class PbfcmScraper(BaseScraper):
                 property_type=ptype,
                 amount_usd=largest,
                 amount_kind="adjudged" if kind == "sale" else "resale_minimum",
-                sale_date=None,
+                sale_date=pdf_sale_date,
                 raw_text=block[:4000],
                 extra={"pdf_kind": kind, "all_amounts": find_all_amounts(block)[:10]},
             )
 
 
-def _passes_filter(amount: int | None, ptype: str) -> bool:
-    if amount is not None and amount >= DISTRESS_MIN_USD:
-        return True
-    if ptype in COMMERCIAL_TYPES:
-        return True
-    return False
+def _passes_filter(amount: int | None) -> bool:
+    """Tax sale PDFs list adjudged values — the property-type OR-branch was
+    catching disclaimer boilerplate ('this doesn't constitute legal advice...
+    commercial purposes') and polluting the digest. Require the amount signal."""
+    return amount is not None and amount >= DISTRESS_MIN_USD
 
 
 def _county_from_link(link_text: str, href: str) -> str:
