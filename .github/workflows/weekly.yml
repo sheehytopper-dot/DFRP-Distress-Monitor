@@ -1,0 +1,80 @@
+name: Weekly scrape + digest
+
+on:
+  schedule:
+    # Thursdays 12:00 UTC = 6 AM CST (winter) / 7 AM CDT (summer).
+    # GitHub Actions cron does not observe DST.
+    - cron: '0 12 * * 4'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Run as baseline (suppress digest, mark all rows as seed)'
+        type: boolean
+        default: false
+      no_email:
+        description: 'Skip sending emails'
+        type: boolean
+        default: false
+
+concurrency:
+  group: weekly-scrape
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Pull existing db from data branch (if exists)
+        run: |
+          git fetch origin data:data 2>/dev/null || echo "data branch not yet created"
+          git checkout data -- db/distress.db 2>/dev/null || echo "no existing db; starting fresh"
+          ls -la db/ || true
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run scrapers + send digests
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_FROM: ${{ secrets.DIGEST_FROM }}
+          DIGEST_TO: ${{ secrets.DIGEST_TO }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.baseline }}" = "true" ]; then ARGS="$ARGS --baseline"; fi
+          if [ "${{ inputs.no_email }}" = "true" ]; then ARGS="$ARGS --no-email"; fi
+          python run.py $ARGS
+
+      - name: Commit updated db to data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Use a worktree so main checkout stays clean.
+          git fetch origin data:data 2>/dev/null || git branch data
+          git worktree add ../data-wt data
+          mkdir -p ../data-wt/db
+          cp db/distress.db ../data-wt/db/distress.db
+          cd ../data-wt
+          git add db/distress.db
+          if git diff --cached --quiet; then
+            echo "No db changes."
+          else
+            git commit -m "Update distress.db from run $GITHUB_RUN_ID"
+            for i in 1 2 3 4; do
+              if git push -u origin data; then break; fi
+              echo "push failed; retry $i"; sleep $((2**i))
+            done
+          fi
