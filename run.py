@@ -10,6 +10,7 @@ import logging
 import sys
 
 from db.connection import get_conn, init_db
+from scrapers.auction_com import AuctionComScraper
 from scrapers.base import BaseScraper
 from scrapers.lgbs import LgbsScraper
 from scrapers.pbfcm import PbfcmScraper
@@ -37,6 +38,8 @@ DISTRESS_SCRAPERS: list[type[BaseScraper]] = [
     KaufmanTrustee,
     EllisTrustee,
     JohnsonTrustee,
+    # Phase 2b — auction.com + ten-x
+    AuctionComScraper,
 ]
 
 

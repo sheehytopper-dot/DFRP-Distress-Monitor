@@ -13,7 +13,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("commercial",  re.compile(r"\b(commercial|retail|office|shopping center|strip center|hotel|motel|restaurant)\b", re.I)),
     ("ranch",       re.compile(r"\b(ranch)\b", re.I)),
     ("agricultural",re.compile(r"\b(agricultural|farm(?!land\s*ave)|ag[\s-]?use|pasture)\b", re.I)),
-    ("land",        re.compile(r"\b(\d+(\.\d+)?\s*acres?|acreage|vacant\s*(lot|land)|undeveloped|raw\s*land|tract\b)", re.I)),
+    ("land",        re.compile(r"\b(land|\d+(?:\.\d+)?\s*acres?|acreage|vacant\s*(?:lot|land)|undeveloped|raw\s*land|tract)\b", re.I)),
     ("residential", re.compile(r"\b(single[\s-]family|sfr|residence|residential|lot\s+\d+.*block)\b", re.I)),
 ]
 
