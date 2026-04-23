@@ -73,18 +73,25 @@ jobs:
           conn = sqlite3.connect("db/distress.db")
           conn.row_factory = sqlite3.Row
           print("\n=== scrape_runs (latest per source) ===")
-          for r in conn.execute("""
-              SELECT source, status, rows_considered, rows_found, rows_new, drop_reasons_json, error_message
+          latest = list(conn.execute("""
+              SELECT source, status, rows_considered, rows_found, rows_new,
+                     drop_reasons_json, sample_text, error_message
               FROM scrape_runs
               WHERE id IN (SELECT MAX(id) FROM scrape_runs GROUP BY source)
               ORDER BY source
-          """):
+          """))
+          for r in latest:
               err = f" — {r['error_message']}" if r['error_message'] else ""
               print(f"  {r['source']:<22} {r['status']:<8} considered={r['rows_considered']} kept={r['rows_found']} new={r['rows_new']}{err}")
               if r['drop_reasons_json']:
                   reasons = json.loads(r['drop_reasons_json'])
-                  reasons_str = ", ".join(f"{k}={v}" for k, v in sorted(reasons.items()))
-                  print(f"    drops: {reasons_str}")
+                  print(f"    drops: {', '.join(f'{k}={v}' for k, v in sorted(reasons.items()))}")
+          # Print sample text for scrapers that considered items but kept zero.
+          print("\n=== sample text (for scrapers with kept=0 and considered>0) ===")
+          for r in latest:
+              if (r['rows_considered'] or 0) > 0 and (r['rows_found'] or 0) == 0 and r['sample_text']:
+                  print(f"\n--- {r['source']} first item text (truncated to 800 chars) ---")
+                  print(r['sample_text'][:800])
           print("\n=== distress_notices counts by source (active) ===")
           for r in conn.execute("SELECT source, COUNT(*) AS n FROM distress_notices WHERE status='active' GROUP BY source ORDER BY source"):
               print(f"  {r['source']:<22} {r['n']}")

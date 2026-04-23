@@ -30,6 +30,8 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE scrape_runs ADD COLUMN rows_considered INTEGER")
     if "drop_reasons_json" not in existing_cols:
         conn.execute("ALTER TABLE scrape_runs ADD COLUMN drop_reasons_json TEXT")
+    if "sample_text" not in existing_cols:
+        conn.execute("ALTER TABLE scrape_runs ADD COLUMN sample_text TEXT")
 
 
 @contextmanager

@@ -102,6 +102,7 @@ class PbfcmScraper(BaseScraper):
         r = self.session.get(pdf_url, timeout=60)
         r.raise_for_status()
         text = extract_text(r.content)
+        self._capture_sample(text)
         if not text:
             log.info("pbfcm no text extracted: %s", pdf_url)
             return

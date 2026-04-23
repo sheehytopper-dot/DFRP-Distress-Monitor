@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     rows_found        INTEGER,
     rows_new          INTEGER,
     drop_reasons_json TEXT,
+    sample_text       TEXT,
     error_message     TEXT
 );
 
