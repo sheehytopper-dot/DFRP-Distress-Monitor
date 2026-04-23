@@ -112,13 +112,22 @@ class PbfcmScraper(BaseScraper):
         pdf_sale_date = extract_sale_date(text)
         if is_past_sale(pdf_sale_date):
             log.info("pbfcm skip past-sale PDF %s (date=%s)", pdf_url, pdf_sale_date)
+            # Count every block we would have seen so 'considered' reflects truth.
+            blocks = list(split_into_property_blocks(text))
+            self.records_considered += len(blocks)
+            self.drop_reasons["past_sale_pdf"] = self.drop_reasons.get("past_sale_pdf", 0) + len(blocks)
             return
 
         for block in split_into_property_blocks(text):
             self.records_considered += 1
             largest = largest_amount(block)
-            if not _passes_filter(largest):
+            if largest is None:
+                self.drop_reasons["no_amount_found"] = self.drop_reasons.get("no_amount_found", 0) + 1
                 continue
+            if largest < DISTRESS_MIN_USD:
+                self.drop_reasons["below_threshold"] = self.drop_reasons.get("below_threshold", 0) + 1
+                continue
+            self.drop_reasons["kept"] = self.drop_reasons.get("kept", 0) + 1
             ptype = classify(block)
 
             source_id = _stable_id(pdf_url, block)
