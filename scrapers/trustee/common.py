@@ -38,10 +38,20 @@ class TrusteeScraperBase(BaseScraper):
     throttle_s: float = 1.5
 
     def __init__(self, session: Optional[requests.Session] = None):
+        super().__init__()
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
         if not self.county:
             raise ValueError(f"{type(self).__name__} must set county")
+
+    def _consider(self, notice_url: str, notice_text: str) -> Optional[DistressRecord]:
+        """Wrapper over build_record that increments the considered counter.
+        Use this from scraper fetch loops."""
+        self.records_considered += 1
+        return build_record(
+            source=self.source, county=self.county,
+            notice_url=notice_url, notice_text=notice_text,
+        )
 
     @property
     def source(self) -> str:

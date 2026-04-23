@@ -18,6 +18,16 @@ def init_db(path: Path = DB_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with _connect(path) as conn:
         conn.executescript(SCHEMA_PATH.read_text())
+        _apply_migrations(conn)
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Add-only schema migrations. SQLite's ALTER TABLE supports adding
+    columns; we never rename or drop in-place so old DBs pulled from the
+    data branch keep working."""
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(scrape_runs)").fetchall()}
+    if "rows_considered" not in existing_cols:
+        conn.execute("ALTER TABLE scrape_runs ADD COLUMN rows_considered INTEGER")
 
 
 @contextmanager

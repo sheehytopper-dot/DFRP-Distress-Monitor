@@ -44,6 +44,7 @@ class LgbsScraper(BaseScraper):
     source = "lgbs"
 
     def __init__(self, headless: bool = True, timeout_ms: int = 45000):
+        super().__init__()
         self.headless = headless
         self.timeout_ms = timeout_ms
 
@@ -92,6 +93,14 @@ class LgbsScraper(BaseScraper):
         if not captured:
             log.warning("lgbs: no JSON API responses captured — site structure likely changed, or blocked")
             return
+
+        # Count property-shaped objects across all payloads so
+        # records_considered can distinguish "no data" from "strict filter".
+        self.records_considered = sum(
+            1 for cap in captured for _ in _walk_property_objects(cap["body"])
+        )
+        log.info("lgbs: %d property objects found across %d payloads",
+                 self.records_considered, len(captured))
 
         for cap in captured:
             yield from _extract_records(cap["url"], cap["body"])

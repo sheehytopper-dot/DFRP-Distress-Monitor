@@ -73,10 +73,7 @@ class JohnsonTrustee(TrusteeScraperBase):
                 log.warning("johnson pdf %s failed: %s", pdf_url, e)
                 failures += 1
                 continue
-            rec = build_record(
-                source=self.source, county=self.county,
-                notice_url=pdf_url, notice_text=text,
-            )
+            rec = self._consider(notice_url=pdf_url, notice_text=text)
             if rec:
                 yield rec
 

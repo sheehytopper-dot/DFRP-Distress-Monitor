@@ -76,9 +76,6 @@ class TarrantTrustee(TrusteeScraperBase):
             except Exception as e:
                 log.warning("tarrant pdf %s failed: %s", pdf_url, e)
                 continue
-            rec = build_record(
-                source=self.source, county=self.county,
-                notice_url=pdf_url, notice_text=text,
-            )
+            rec = self._consider(notice_url=pdf_url, notice_text=text)
             if rec:
                 yield rec

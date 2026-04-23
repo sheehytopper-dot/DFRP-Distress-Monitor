@@ -27,7 +27,10 @@ CANDIDATE_BASES = [
     "https://apps2.collincountytx.gov/ForeclosureNotices",
 ]
 
-_DETAIL_RE = re.compile(r"/ForeclosureNotices/DetailPage/\d+", re.I)
+_DETAIL_RE = re.compile(
+    r"/ForeclosureNotices/(?:DetailPage|Property/PropertyDetails)/\d+",
+    re.I,
+)
 
 
 class CollinTrustee(TrusteeScraperBase):
@@ -69,12 +72,7 @@ class CollinTrustee(TrusteeScraperBase):
                 log.warning("collin detail %s failed: %s", url, e)
                 failures += 1
                 continue
-            rec = build_record(
-                source=self.source,
-                county=self.county,
-                notice_url=url,
-                notice_text=text,
-            )
+            rec = self._consider(notice_url=url, notice_text=text)
             if rec:
                 yield rec
 

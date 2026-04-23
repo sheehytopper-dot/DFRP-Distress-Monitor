@@ -66,12 +66,18 @@ jobs:
           import sqlite3
           conn = sqlite3.connect("db/distress.db")
           conn.row_factory = sqlite3.Row
-          print("\n=== scrape_runs ===")
-          for r in conn.execute("SELECT source, status, rows_found, rows_new, error_message FROM scrape_runs ORDER BY id"):
-              print(f"  {r['source']:<18} {r['status']:<8} found={r['rows_found']} new={r['rows_new']} {r['error_message'] or ''}")
-          print("\n=== distress_notices counts by source ===")
-          for r in conn.execute("SELECT source, COUNT(*) AS n FROM distress_notices GROUP BY source ORDER BY source"):
-              print(f"  {r['source']:<18} {r['n']}")
+          print("\n=== scrape_runs (latest per source) ===")
+          for r in conn.execute("""
+              SELECT source, status, rows_considered, rows_found, rows_new, error_message
+              FROM scrape_runs
+              WHERE id IN (SELECT MAX(id) FROM scrape_runs GROUP BY source)
+              ORDER BY source
+          """):
+              err = f" — {r['error_message']}" if r['error_message'] else ""
+              print(f"  {r['source']:<22} {r['status']:<8} considered={r['rows_considered']} kept={r['rows_found']} new={r['rows_new']}{err}")
+          print("\n=== distress_notices counts by source (active) ===")
+          for r in conn.execute("SELECT source, COUNT(*) AS n FROM distress_notices WHERE status='active' GROUP BY source ORDER BY source"):
+              print(f"  {r['source']:<22} {r['n']}")
           PY
           else
             echo "No db/distress.db present."

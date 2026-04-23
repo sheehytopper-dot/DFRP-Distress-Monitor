@@ -56,6 +56,7 @@ class PbfcmScraper(BaseScraper):
     source = "pbfcm"
 
     def __init__(self, session: requests.Session | None = None, throttle_s: float = 2.0):
+        super().__init__()
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
         self.throttle_s = throttle_s
@@ -114,6 +115,7 @@ class PbfcmScraper(BaseScraper):
             return
 
         for block in split_into_property_blocks(text):
+            self.records_considered += 1
             largest = largest_amount(block)
             if not _passes_filter(largest):
                 continue

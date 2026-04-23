@@ -29,9 +29,16 @@ class BaseScraper:
     run() handles upsert, activity transitions, and scrape_runs bookkeeping.
     A scraper that raises propagates a failed scrape_runs row but does not
     abort the orchestrator.
+
+    Scrapers may increment self.records_considered for each item they
+    evaluated before filtering, so the digest can distinguish "found
+    nothing" from "downloaded 50 items but all below threshold".
     """
 
     source: str = ""
+
+    def __init__(self):
+        self.records_considered = 0
 
     def fetch(self) -> Iterator[DistressRecord]:
         raise NotImplementedError
@@ -58,8 +65,12 @@ class BaseScraper:
             error = f"{type(e).__name__}: {e}"
             status = "failed"
 
-        _finish_run(conn, run_id, _utcnow(), status, rows_found, rows_new, error)
-        return {"status": status, "found": rows_found, "new": rows_new, "error": error}
+        _finish_run(conn, run_id, _utcnow(), status,
+                    self.records_considered, rows_found, rows_new, error)
+        log.info("%s summary: considered=%d kept=%d new=%d status=%s",
+                 self.source, self.records_considered, rows_found, rows_new, status)
+        return {"status": status, "considered": self.records_considered,
+                "found": rows_found, "new": rows_new, "error": error}
 
 
 def _utcnow() -> str:
@@ -74,10 +85,10 @@ def _insert_run(conn: sqlite3.Connection, source: str, started: str) -> int:
     return cur.lastrowid
 
 
-def _finish_run(conn, run_id, finished, status, found, new, error) -> None:
+def _finish_run(conn, run_id, finished, status, considered, found, new, error) -> None:
     conn.execute(
-        "UPDATE scrape_runs SET finished_at=?, status=?, rows_found=?, rows_new=?, error_message=? WHERE id=?",
-        (finished, status, found, new, error, run_id),
+        "UPDATE scrape_runs SET finished_at=?, status=?, rows_considered=?, rows_found=?, rows_new=?, error_message=? WHERE id=?",
+        (finished, status, considered, found, new, error, run_id),
     )
 
 

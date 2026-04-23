@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     started_at      TIMESTAMP NOT NULL,
     finished_at     TIMESTAMP,
     status          TEXT NOT NULL,
+    rows_considered INTEGER,
     rows_found      INTEGER,
     rows_new        INTEGER,
     error_message   TEXT

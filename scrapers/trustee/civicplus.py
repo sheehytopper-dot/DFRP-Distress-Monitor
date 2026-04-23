@@ -81,10 +81,7 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
                 log.warning("%s item %s failed: %s", self.county, item_url, e)
                 failures += 1
                 continue
-            rec = build_record(
-                source=self.source, county=self.county,
-                notice_url=item_url, notice_text=text,
-            )
+            rec = self._consider(notice_url=item_url, notice_text=text)
             if rec:
                 yield rec
 
