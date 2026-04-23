@@ -84,7 +84,11 @@ class LgbsScraper(BaseScraper):
             page.on("response", on_response)
 
             try:
-                page.goto(MAP_URL, wait_until="networkidle", timeout=self.timeout_ms)
+                # networkidle can hang forever on map pages that keep firing
+                # polling requests. Use domcontentloaded + a short settle
+                # sleep; our on_response handler captures XHRs either way.
+                page.goto(MAP_URL, wait_until="domcontentloaded", timeout=self.timeout_ms)
+                page.wait_for_timeout(5000)
             except Exception as e:
                 log.warning("lgbs page load timed out / failed: %s", e)
 

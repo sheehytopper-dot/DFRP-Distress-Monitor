@@ -104,7 +104,10 @@ class AuctionComScraper(BaseScraper):
             for url in AUCTION_URLS + [TENX_URL]:
                 log.info("auction_com: loading %s", url)
                 try:
-                    page.goto(url, wait_until="networkidle", timeout=self.timeout_ms)
+                    # Same reasoning as lgbs: networkidle hangs on heavy JS
+                    # pages; domcontentloaded + settle is bounded.
+                    page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
+                    page.wait_for_timeout(5000)
                     html = page.content()
                     if any(m in html for m in _CLOUDFLARE_MARKERS):
                         log.warning("auction_com: Cloudflare challenge on %s", url)
