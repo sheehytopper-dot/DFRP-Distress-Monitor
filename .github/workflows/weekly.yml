@@ -30,6 +30,12 @@ jobs:
       - name: Checkout main
         uses: actions/checkout@v4
 
+      - name: Report checked-out commit
+        run: |
+          echo "Commit SHA: $GITHUB_SHA"
+          echo "Ref:        $GITHUB_REF"
+          git log -1 --oneline
+
       - name: Pull existing db from data branch (if exists)
         run: |
           git fetch origin data:data 2>/dev/null || echo "data branch not yet created"
