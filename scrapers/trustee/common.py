@@ -45,12 +45,13 @@ class TrusteeScraperBase(BaseScraper):
             raise ValueError(f"{type(self).__name__} must set county")
 
     def _consider(self, notice_url: str, notice_text: str) -> Optional[DistressRecord]:
-        """Wrapper over build_record that increments the considered counter.
-        Use this from scraper fetch loops."""
+        """Wrapper over build_record that increments the considered counter
+        and records drop reasons. Use this from scraper fetch loops."""
         self.records_considered += 1
         return build_record(
             source=self.source, county=self.county,
             notice_url=notice_url, notice_text=notice_text,
+            reasons=self.drop_reasons,
         )
 
     @property
@@ -64,22 +65,37 @@ def build_record(
     county: str,
     notice_url: str,
     notice_text: str,
+    reasons: Optional[dict] = None,
 ) -> Optional[DistressRecord]:
     """Turn a notice text into a DistressRecord if it passes the filter.
 
     Filter: largest $ in text >= $DISTRESS_MIN_USD (user's "original loan
     proxy"). We also store the labeled 'Original Principal Amount' in extra
     when present so downstream diagnostics can see both numbers.
+
+    If `reasons` is provided, increments a counter per drop reason so the
+    caller can report where records are disappearing.
     """
+    def _bump(key: str) -> None:
+        if reasons is not None:
+            reasons[key] = reasons.get(key, 0) + 1
+
     amount = largest_amount(notice_text)
     labeled_principal = extract_original_principal(notice_text)
-    if amount is None or amount < DISTRESS_MIN_USD:
+    if amount is None:
+        _bump("no_amount_found")
+        return None
+    if amount < DISTRESS_MIN_USD:
+        _bump("below_threshold")
         return None
 
     sale_date = extract_sale_date(notice_text)
     if is_past_sale(sale_date):
+        _bump("past_sale")
         log.debug("dropping past sale %s for %s", sale_date, notice_url)
         return None
+
+    _bump("kept")
 
     address = extract_address(notice_text)
     ptype = classify(notice_text)

@@ -15,6 +15,10 @@ on:
         description: 'Skip sending emails'
         type: boolean
         default: false
+      threshold_usd:
+        description: 'Minimum dollar amount to keep a record (default 2000000)'
+        type: string
+        default: '2000000'
 
 concurrency:
   group: weekly-scrape
@@ -52,10 +56,12 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DIGEST_FROM: ${{ secrets.DIGEST_FROM }}
           DIGEST_TO: ${{ secrets.DIGEST_TO }}
+          DISTRESS_MIN_USD: ${{ inputs.threshold_usd || '2000000' }}
         run: |
           ARGS=""
           if [ "${{ inputs.baseline }}" = "true" ]; then ARGS="$ARGS --baseline"; fi
           if [ "${{ inputs.no_email }}" = "true" ]; then ARGS="$ARGS --no-email"; fi
+          echo "Using DISTRESS_MIN_USD=$DISTRESS_MIN_USD"
           python run.py $ARGS
 
       - name: Dump scrape_runs to log
@@ -63,18 +69,22 @@ jobs:
         run: |
           if [ -f db/distress.db ]; then
             python - <<'PY'
-          import sqlite3
+          import json, sqlite3
           conn = sqlite3.connect("db/distress.db")
           conn.row_factory = sqlite3.Row
           print("\n=== scrape_runs (latest per source) ===")
           for r in conn.execute("""
-              SELECT source, status, rows_considered, rows_found, rows_new, error_message
+              SELECT source, status, rows_considered, rows_found, rows_new, drop_reasons_json, error_message
               FROM scrape_runs
               WHERE id IN (SELECT MAX(id) FROM scrape_runs GROUP BY source)
               ORDER BY source
           """):
               err = f" — {r['error_message']}" if r['error_message'] else ""
               print(f"  {r['source']:<22} {r['status']:<8} considered={r['rows_considered']} kept={r['rows_found']} new={r['rows_new']}{err}")
+              if r['drop_reasons_json']:
+                  reasons = json.loads(r['drop_reasons_json'])
+                  reasons_str = ", ".join(f"{k}={v}" for k, v in sorted(reasons.items()))
+                  print(f"    drops: {reasons_str}")
           print("\n=== distress_notices counts by source (active) ===")
           for r in conn.execute("SELECT source, COUNT(*) AS n FROM distress_notices WHERE status='active' GROUP BY source ORDER BY source"):
               print(f"  {r['source']:<22} {r['n']}")

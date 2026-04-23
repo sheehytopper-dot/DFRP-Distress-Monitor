@@ -39,6 +39,7 @@ class BaseScraper:
 
     def __init__(self):
         self.records_considered = 0
+        self.drop_reasons: dict[str, int] = {}
 
     def fetch(self) -> Iterator[DistressRecord]:
         raise NotImplementedError
@@ -65,12 +66,16 @@ class BaseScraper:
             error = f"{type(e).__name__}: {e}"
             status = "failed"
 
+        drop_json = json.dumps(self.drop_reasons) if self.drop_reasons else None
         _finish_run(conn, run_id, _utcnow(), status,
-                    self.records_considered, rows_found, rows_new, error)
-        log.info("%s summary: considered=%d kept=%d new=%d status=%s",
-                 self.source, self.records_considered, rows_found, rows_new, status)
+                    self.records_considered, rows_found, rows_new,
+                    drop_json, error)
+        log.info("%s summary: considered=%d kept=%d new=%d drops=%s status=%s",
+                 self.source, self.records_considered, rows_found, rows_new,
+                 self.drop_reasons or {}, status)
         return {"status": status, "considered": self.records_considered,
-                "found": rows_found, "new": rows_new, "error": error}
+                "found": rows_found, "new": rows_new,
+                "drop_reasons": dict(self.drop_reasons), "error": error}
 
 
 def _utcnow() -> str:
@@ -85,10 +90,10 @@ def _insert_run(conn: sqlite3.Connection, source: str, started: str) -> int:
     return cur.lastrowid
 
 
-def _finish_run(conn, run_id, finished, status, considered, found, new, error) -> None:
+def _finish_run(conn, run_id, finished, status, considered, found, new, drop_json, error) -> None:
     conn.execute(
-        "UPDATE scrape_runs SET finished_at=?, status=?, rows_considered=?, rows_found=?, rows_new=?, error_message=? WHERE id=?",
-        (finished, status, considered, found, new, error, run_id),
+        "UPDATE scrape_runs SET finished_at=?, status=?, rows_considered=?, rows_found=?, rows_new=?, drop_reasons_json=?, error_message=? WHERE id=?",
+        (finished, status, considered, found, new, drop_json, error, run_id),
     )
 
 

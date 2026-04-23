@@ -71,15 +71,16 @@ CREATE INDEX IF NOT EXISTS idx_probate_attorney       ON probate_filings(attorne
 CREATE INDEX IF NOT EXISTS idx_probate_real_estate    ON probate_filings(involves_real_estate);
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
-    id              INTEGER PRIMARY KEY,
-    source          TEXT NOT NULL,
-    started_at      TIMESTAMP NOT NULL,
-    finished_at     TIMESTAMP,
-    status          TEXT NOT NULL,
-    rows_considered INTEGER,
-    rows_found      INTEGER,
-    rows_new        INTEGER,
-    error_message   TEXT
+    id                INTEGER PRIMARY KEY,
+    source            TEXT NOT NULL,
+    started_at        TIMESTAMP NOT NULL,
+    finished_at       TIMESTAMP,
+    status            TEXT NOT NULL,
+    rows_considered   INTEGER,
+    rows_found        INTEGER,
+    rows_new          INTEGER,
+    drop_reasons_json TEXT,
+    error_message     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_scrape_runs_started ON scrape_runs(started_at);
