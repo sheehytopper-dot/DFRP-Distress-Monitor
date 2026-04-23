@@ -54,12 +54,7 @@ class DallasTrustee(TrusteeScraperBase):
                 log.warning("dallas pdf %s failed: %s", pdf_url, e)
                 pdf_failures += 1
                 continue
-            rec = build_record(
-                source=self.source,
-                county=self.county,
-                notice_url=pdf_url,
-                notice_text=text,
-            )
+            rec = self._consider(notice_url=pdf_url, notice_text=text)
             if rec:
                 yielded += 1
                 yield rec

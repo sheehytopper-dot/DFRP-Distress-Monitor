@@ -57,6 +57,7 @@ class AuctionComScraper(BaseScraper):
     source = "auction_com"
 
     def __init__(self, headless: bool = True, timeout_ms: int = 45000):
+        super().__init__()
         self.headless = headless
         self.timeout_ms = timeout_ms
 
@@ -125,6 +126,10 @@ class AuctionComScraper(BaseScraper):
             return
 
         log.info("auction_com: captured %d JSON payloads from %d pages", len(captured), pages_loaded)
+        self.records_considered = sum(
+            1 for cap in captured for _ in _walk_listing_objects(cap["body"])
+        )
+        log.info("auction_com: %d listing objects across payloads", self.records_considered)
         for cap in captured:
             yield from _extract_records(cap["url"], cap["body"], cap["origin"])
 

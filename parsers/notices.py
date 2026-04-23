@@ -33,6 +33,22 @@ _SALE_DATE_ORDINAL = re.compile(
     re.I,
 )
 
+# Numeric format: "Date: 3/3/2026" or "Sale Date: 03/03/2026"
+_SALE_DATE_NUMERIC = re.compile(
+    r"\b(?:Sale\s+Date|Date\s+of\s+Sale|Date)[:\s]+"
+    r"(?:[A-Za-z]+day,?\s*)?"
+    r"(?P<month>\d{1,2})[/-](?P<day>\d{1,2})[/-](?P<year>\d{4})",
+    re.I,
+)
+
+# "Sale Information:" label, tolerant of OCR (Infonnation / Informaiton / etc.)
+# Match first 4 letters "Sale" then "Inf" to handle common OCR degradations.
+_SALE_DATE_INFORMATION = re.compile(
+    rf"\bSale\s+Inf\w{{3,12}}[:\s]+"
+    rf"(?P<month>{_MONTHS})\s+(?P<day>\d{{1,2}}),?\s*(?P<year>\d{{4}})",
+    re.I,
+)
+
 
 def extract_sale_date(text: str) -> Optional[str]:
     """Return YYYY-MM-DD of the latest plausible sale date mentioned, or None.
@@ -43,12 +59,19 @@ def extract_sale_date(text: str) -> Optional[str]:
     if not text:
         return None
     dates: list[str] = []
-    for pat in (_SALE_DATE_LABELED, _SALE_DATE_HEADER, _SALE_DATE_ORDINAL):
+    for pat in (_SALE_DATE_LABELED, _SALE_DATE_HEADER, _SALE_DATE_ORDINAL,
+                _SALE_DATE_INFORMATION, _SALE_DATE_NUMERIC):
         for m in pat.finditer(text):
             try:
-                dt = datetime.strptime(f"{m['month']} {m['day']} {m['year']}", "%B %d %Y")
-                dates.append(dt.date().isoformat())
-            except ValueError:
+                if pat is _SALE_DATE_NUMERIC:
+                    mo, d, y = int(m['month']), int(m['day']), int(m['year'])
+                    if not (1 <= mo <= 12 and 1 <= d <= 31):
+                        continue
+                    dates.append(f"{y:04d}-{mo:02d}-{d:02d}")
+                else:
+                    dt = datetime.strptime(f"{m['month']} {m['day']} {m['year']}", "%B %d %Y")
+                    dates.append(dt.date().isoformat())
+            except (ValueError, KeyError):
                 continue
     return max(dates) if dates else None
 

@@ -56,6 +56,21 @@ def test_sale_date_ordinal_with_ofmonth_no_space():
     assert extract_sale_date(text) == "2026-03-03"
 
 
+def test_sale_date_numeric_format():
+    # Dallas notices sometimes render as "Date: 3/3/2026".
+    assert extract_sale_date("Date: 3/3/2026") == "2026-03-03"
+    assert extract_sale_date("Sale Date: 05/06/2026") == "2026-05-06"
+    # Invalid month should be skipped.
+    assert extract_sale_date("Date: 13/45/2026") is None
+
+
+def test_sale_date_sale_information_ocr_variants():
+    # "Sale Information: March 03, 2026" and OCR-corrupted forms.
+    assert extract_sale_date("Sale Information: March 03, 2026") == "2026-03-03"
+    assert extract_sale_date("Sale Infonnation: March 03, 2026") == "2026-03-03"
+    assert extract_sale_date("Sale Informaiton: June 2, 2026") == "2026-06-02"
+
+
 def test_is_past_sale():
     assert is_past_sale("2020-01-01", today="2026-04-22") is True
     assert is_past_sale("2099-01-01", today="2026-04-22") is False
