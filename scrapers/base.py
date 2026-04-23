@@ -40,6 +40,15 @@ class BaseScraper:
     def __init__(self):
         self.records_considered = 0
         self.drop_reasons: dict[str, int] = {}
+        # First raw text seen by the scraper, truncated for storage. Used to
+        # diagnose why text-based filters drop every record.
+        self.sample_text: Optional[str] = None
+
+    def _capture_sample(self, text: str) -> None:
+        """Store the first ~2000 chars of text seen, once. Subsequent calls
+        are no-ops so the sample is deterministic per run."""
+        if self.sample_text is None and text:
+            self.sample_text = text[:2000]
 
     def fetch(self) -> Iterator[DistressRecord]:
         raise NotImplementedError
@@ -69,7 +78,7 @@ class BaseScraper:
         drop_json = json.dumps(self.drop_reasons) if self.drop_reasons else None
         _finish_run(conn, run_id, _utcnow(), status,
                     self.records_considered, rows_found, rows_new,
-                    drop_json, error)
+                    drop_json, self.sample_text, error)
         log.info("%s summary: considered=%d kept=%d new=%d drops=%s status=%s",
                  self.source, self.records_considered, rows_found, rows_new,
                  self.drop_reasons or {}, status)
@@ -90,10 +99,10 @@ def _insert_run(conn: sqlite3.Connection, source: str, started: str) -> int:
     return cur.lastrowid
 
 
-def _finish_run(conn, run_id, finished, status, considered, found, new, drop_json, error) -> None:
+def _finish_run(conn, run_id, finished, status, considered, found, new, drop_json, sample_text, error) -> None:
     conn.execute(
-        "UPDATE scrape_runs SET finished_at=?, status=?, rows_considered=?, rows_found=?, rows_new=?, drop_reasons_json=?, error_message=? WHERE id=?",
-        (finished, status, considered, found, new, drop_json, error, run_id),
+        "UPDATE scrape_runs SET finished_at=?, status=?, rows_considered=?, rows_found=?, rows_new=?, drop_reasons_json=?, sample_text=?, error_message=? WHERE id=?",
+        (finished, status, considered, found, new, drop_json, sample_text, error, run_id),
     )
 
 

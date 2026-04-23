@@ -48,6 +48,7 @@ class TrusteeScraperBase(BaseScraper):
         """Wrapper over build_record that increments the considered counter
         and records drop reasons. Use this from scraper fetch loops."""
         self.records_considered += 1
+        self._capture_sample(notice_text)
         return build_record(
             source=self.source, county=self.county,
             notice_url=notice_url, notice_text=notice_text,
