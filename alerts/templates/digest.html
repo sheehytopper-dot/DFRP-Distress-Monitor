@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DFRP Distress Digest — {{ today }}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #1a1a1a; max-width: 720px; margin: 0 auto; padding: 20px;">
+
+<h1 style="margin-bottom: 4px;">DFRP Distress Digest</h1>
+<p style="color: #666; margin-top: 0;">{{ today }} &middot; threshold ${{ "{:,}".format(threshold_usd) }}+</p>
+
+<p style="font-size: 16px;">
+  <strong>{{ new_this_week|length }}</strong> new this week
+  &middot; {{ still_active_count }} previously-seen still active
+  &middot; {{ dropped_this_week }} dropped
+</p>
+
+{% if new_this_week %}
+<h2 style="border-bottom: 2px solid #1a1a1a; padding-bottom: 4px;">New leads</h2>
+<table cellpadding="8" cellspacing="0" border="0" style="width: 100%; border-collapse: collapse;">
+<thead>
+  <tr style="background: #f4f4f4;">
+    <th align="left">Amount</th>
+    <th align="left">Type</th>
+    <th align="left">County</th>
+    <th align="left">Sale date</th>
+    <th align="left">Address</th>
+    <th align="left">Source</th>
+  </tr>
+</thead>
+<tbody>
+{% for r in new_this_week %}
+  <tr style="border-bottom: 1px solid #eee;">
+    <td><strong>${{ "{:,}".format(r["amount_usd"] or 0) }}</strong></td>
+    <td>{{ r["property_type"] or "—" }}</td>
+    <td>{{ r["county"] }}</td>
+    <td>{{ r["sale_date"] or "unknown" }}</td>
+    <td>{{ (r["property_address"] or "—")[:80] }}</td>
+    <td><a href="{{ r['url'] }}" style="color: #0066cc;">notice</a> &middot; {{ r["source"] }}</td>
+  </tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p style="padding: 16px; background: #fffde7; border-left: 4px solid #f9a825;">
+  No new leads above threshold this week. That's not unusual — commercial
+  distress is cyclical and many transactions happen off-market.
+</p>
+{% endif %}
+
+<h2 style="margin-top: 32px; border-bottom: 2px solid #1a1a1a; padding-bottom: 4px;">Scraper status</h2>
+<table cellpadding="6" cellspacing="0" style="width: 100%; border-collapse: collapse; font-size: 14px;">
+<thead>
+  <tr style="background: #f4f4f4;">
+    <th align="left">Source</th>
+    <th align="right">Considered</th>
+    <th align="right">Kept</th>
+    <th align="left">Status</th>
+  </tr>
+</thead>
+<tbody>
+{% for s in scrapers %}
+  <tr style="border-bottom: 1px solid #eee;">
+    <td>{{ s.source }}</td>
+    <td align="right">{{ s.considered }}</td>
+    <td align="right">{{ s.found }}</td>
+    <td>
+      {% if s.status == "failed" %}
+        <span style="color: #c62828;">failed</span>
+      {% else %}
+        ok
+      {% endif %}
+    </td>
+  </tr>
+{% endfor %}
+</tbody>
+</table>
+
+{% if failed_scrapers %}
+<h3 style="color: #c62828; margin-top: 20px;">Failures this run</h3>
+<ul>
+{% for s in failed_scrapers %}
+  <li>
+    <strong>{{ s.source }}</strong>:
+    <span style="font-family: ui-monospace, Menlo, monospace; font-size: 12px;">{{ s.error or "(no error message)" }}</span>
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<hr style="margin: 30px 0; border: 0; border-top: 1px solid #ddd;">
+<p style="color: #888; font-size: 12px;">
+  Automated run &middot; DB lives on the <code>data</code> branch &middot;
+  source code: <a href="https://github.com/sheehytopper-dot/DFRP-Distress-Monitor">github.com/sheehytopper-dot/DFRP-Distress-Monitor</a>
+</p>
+
+</body>
+</html>
