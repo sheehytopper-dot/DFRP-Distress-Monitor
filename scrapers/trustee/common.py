@@ -32,6 +32,22 @@ USER_AGENT = (
     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 )
 
+# CivicEngage / CivicPlus / basic WAFs often 403 on UA-only requests.
+# These Chrome-like headers match what a real browser sends on a top-level
+# navigation and are enough to get past most first-tier protection.
+_DEFAULT_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
 
 class TrusteeScraperBase(BaseScraper):
     county: str = ""  # subclasses must set
@@ -40,7 +56,7 @@ class TrusteeScraperBase(BaseScraper):
     def __init__(self, session: Optional[requests.Session] = None):
         super().__init__()
         self.session = session or requests.Session()
-        self.session.headers["User-Agent"] = USER_AGENT
+        self.session.headers.update(_DEFAULT_HEADERS)
         if not self.county:
             raise ValueError(f"{type(self).__name__} must set county")
 
