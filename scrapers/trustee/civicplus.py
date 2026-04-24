@@ -89,9 +89,13 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
             raise RuntimeError(f"{self.county}: every archive item fetch failed")
 
     def _fetch_item_text(self, url: str) -> str:
-        """Fetch an item. Follows an HTML wrapper (Archive.aspx?ADID) to the
-        underlying PDF if one is linked, otherwise extracts text from the
-        HTML directly."""
+        """Fetch an item. Handles:
+         - Direct PDF at the URL
+         - HTML wrapper with a PDF <a> tag
+         - Archive.aspx?ADID=N wrapper where the content is behind an
+           iframe / JS viewer — fall back to /ArchiveCenter/ViewFile/Item/N
+           with the same id (CivicEngage reuses ADID as item id).
+        """
         resp = self.session.get(url, timeout=60)
         resp.raise_for_status()
 
@@ -99,7 +103,6 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
         if resp.content[:4] == b"%PDF":
             return extract_text(resp.content)
 
-        # HTML wrapper — look for a PDF link inside
         soup = BeautifulSoup(resp.text, "lxml")
         pdf_link = _find_pdf_link(soup, base_url=url)
         if pdf_link:
@@ -108,7 +111,25 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
             if pdf_resp.content[:4] == b"%PDF":
                 return extract_text(pdf_resp.content)
 
-        # Fallback — scrape any visible text
+        # ADID fallback: try /ArchiveCenter/ViewFile/Item/{id}. CivicEngage
+        # sites publish the same item under both URLs; the ADID view is an
+        # HTML viewer, the ViewFile/Item is the raw PDF.
+        m = re.search(r"[?&]ADID=(\d+)", url, re.I)
+        if m:
+            root = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+            viewfile_url = f"{root}/ArchiveCenter/ViewFile/Item/{m.group(1)}"
+            try:
+                pdf_resp = self.session.get(viewfile_url, timeout=60)
+                pdf_resp.raise_for_status()
+                if pdf_resp.content[:4] == b"%PDF":
+                    return extract_text(pdf_resp.content)
+            except Exception as e:
+                log.warning("%s ViewFile/Item fallback failed %s: %s",
+                            self.county, viewfile_url, e)
+
+        # Fallback — scrape any visible text (will be mostly empty for
+        # CivicEngage viewers; signals to the caller that this item was
+        # unextractable).
         return soup.get_text("\n", strip=True)
 
 

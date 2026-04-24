@@ -19,25 +19,9 @@ log = logging.getLogger(__name__)
 
 LANDING = "https://www.johnsoncountytx.org/government/county-clerk/land-records-vitals/foreclosure-sales"
 
-_BROWSER_HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "DNT": "1",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-}
-
 
 class JohnsonTrustee(TrusteeScraperBase):
     county = "johnson"
-
-    def __init__(self, session=None):
-        super().__init__(session)
-        self.session.headers.update(_BROWSER_HEADERS)
 
     def fetch(self) -> Iterator[DistressRecord]:
         try:

@@ -48,12 +48,14 @@ class TarrantTrustee(TrusteeScraperBase):
                 landing_failures += 1
                 continue
             soup = BeautifulSoup(r.text, "lxml")
+            # Only keep Granicus foreclosure-document links. The earlier
+            # version also accepted any *.pdf anchor, which pulled in
+            # unrelated documents from the global page nav (e.g. the
+            # Criminal Payments form).
             for a in soup.find_all("a", href=True):
-                href = a["href"]
-                if _GRANICUS_RE.search(href) or href.lower().endswith(".pdf"):
-                    pdf_urls.add(urljoin(url, href))
-            # Also pull raw href-like strings from script/text if clerk embeds
-            # links in JavaScript (Granicus sometimes does).
+                if _GRANICUS_RE.search(a["href"]):
+                    pdf_urls.add(urljoin(url, a["href"]))
+            # Granicus links are sometimes rendered by JS; scan raw HTML too.
             for m in _GRANICUS_RE.finditer(r.text):
                 pdf_urls.add("https://" + m.group(0))
 
