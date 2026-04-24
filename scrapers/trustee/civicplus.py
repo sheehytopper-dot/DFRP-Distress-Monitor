@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup
 
 from parsers.pdf import extract_text
 from scrapers.base import DistressRecord
+from scrapers.playwright_util import render_html
 from scrapers.trustee.common import TrusteeScraperBase, build_record
 
 log = logging.getLogger(__name__)
@@ -72,6 +73,15 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
             raise RuntimeError(f"{self.county}: no archive items found across AMIDs {amids}")
 
         log.info("%s: %d archive items across %d AMID(s)", self.county, len(all_items), len(amids))
+
+        # Discover a reusable PDF-URL template from the first ADID item using
+        # Playwright (expensive; we only do it once). If discovery succeeds,
+        # the rest of the items get their PDFs via plain requests using that
+        # template — avoids launching Chromium 200+ times per run.
+        self._pdf_url_template: Optional[str] = self._discover_pdf_template(all_items)
+        if self._pdf_url_template:
+            log.info("%s: discovered PDF URL template: %s", self.county, self._pdf_url_template)
+
         failures = 0
         for item_url in all_items:
             time.sleep(self.throttle_s)
@@ -88,22 +98,57 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
         if failures == len(all_items):
             raise RuntimeError(f"{self.county}: every archive item fetch failed")
 
+    def _discover_pdf_template(self, all_items: list[str]) -> Optional[str]:
+        """Render the first ADID item in Playwright and capture any PDF
+        response. Infer a URL template by replacing the ADID number with
+        {id}. Returns None if discovery fails."""
+        for item_url in all_items:
+            m = re.search(r"[?&]ADID=(\d+)", item_url, re.I)
+            if not m:
+                continue
+            adid = m.group(1)
+            _html, pdf_urls = render_html(item_url, wait_ms=5000, capture_pdfs=True)
+            for pdf_url in pdf_urls:
+                if adid in pdf_url:
+                    return pdf_url.replace(adid, "{id}")
+            # first ADID tried, even if no PDF captured — stop; next items
+            # are unlikely to have different infrastructure.
+            return None
+        return None
+
     def _fetch_item_text(self, url: str) -> str:
-        """Fetch an item. Handles:
-         - Direct PDF at the URL
-         - HTML wrapper with a PDF <a> tag
-         - Archive.aspx?ADID=N wrapper where the content is behind an
-           iframe / JS viewer — fall back to /ArchiveCenter/ViewFile/Item/N
-           with the same id (CivicEngage reuses ADID as item id).
+        """Fetch an item. Tries in order:
+         1. Templated PDF URL (discovered via Playwright on first item)
+         2. Direct GET — PDF content
+         3. HTML wrapper with <a href=".pdf">
+         4. /ArchiveCenter/ViewFile/Item/{adid} guess
+         5. Raw visible text (usually empty for JS viewers — signals failure)
         """
+        # 1. Templated URL derived from Playwright discovery
+        template = getattr(self, "_pdf_url_template", None)
+        if template:
+            m = re.search(r"[?&]ADID=(\d+)", url, re.I)
+            if m:
+                pdf_url = template.replace("{id}", m.group(1))
+                try:
+                    pdf_resp = self.session.get(pdf_url, timeout=60)
+                    pdf_resp.raise_for_status()
+                    if pdf_resp.content[:4] == b"%PDF":
+                        return extract_text(pdf_resp.content)
+                except Exception as e:
+                    log.warning("%s template PDF fetch failed %s: %s",
+                                self.county, pdf_url, e)
+
         resp = self.session.get(url, timeout=60)
         resp.raise_for_status()
 
-        # Direct PDF
+        # 2. Direct PDF response
         if resp.content[:4] == b"%PDF":
             return extract_text(resp.content)
 
         soup = BeautifulSoup(resp.text, "lxml")
+
+        # 3. HTML wrapper with a PDF <a> tag
         pdf_link = _find_pdf_link(soup, base_url=url)
         if pdf_link:
             pdf_resp = self.session.get(pdf_link, timeout=60)
@@ -111,9 +156,7 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
             if pdf_resp.content[:4] == b"%PDF":
                 return extract_text(pdf_resp.content)
 
-        # ADID fallback: try /ArchiveCenter/ViewFile/Item/{id}. CivicEngage
-        # sites publish the same item under both URLs; the ADID view is an
-        # HTML viewer, the ViewFile/Item is the raw PDF.
+        # 4. ADID -> ViewFile/Item guess
         m = re.search(r"[?&]ADID=(\d+)", url, re.I)
         if m:
             root = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
@@ -127,9 +170,7 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
                 log.warning("%s ViewFile/Item fallback failed %s: %s",
                             self.county, viewfile_url, e)
 
-        # Fallback — scrape any visible text (will be mostly empty for
-        # CivicEngage viewers; signals to the caller that this item was
-        # unextractable).
+        # 5. Give up on this item; empty HTML wrapper
         return soup.get_text("\n", strip=True)
 
 
