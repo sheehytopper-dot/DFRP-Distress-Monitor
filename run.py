@@ -14,6 +14,15 @@ from scrapers.auction_com import AuctionComScraper
 from scrapers.base import BaseScraper
 from scrapers.lgbs import LgbsScraper
 from scrapers.pbfcm import PbfcmScraper
+from scrapers.probate.collin import CollinProbate
+from scrapers.probate.dallas import DallasProbate
+from scrapers.probate.denton import DentonProbate
+from scrapers.probate.ellis import EllisProbate
+from scrapers.probate.hunt import HuntProbate
+from scrapers.probate.johnson import JohnsonProbate
+from scrapers.probate.kaufman import KaufmanProbate
+from scrapers.probate.rockwall import RockwallProbate
+from scrapers.probate.tarrant import TarrantProbate
 from scrapers.trustee.collin import CollinTrustee
 from scrapers.trustee.dallas import DallasTrustee
 from scrapers.trustee.denton import DentonTrustee
@@ -40,6 +49,18 @@ DISTRESS_SCRAPERS: list[type[BaseScraper]] = [
     JohnsonTrustee,
     # Phase 2b — auction.com + ten-x
     AuctionComScraper,
+]
+
+PROBATE_SCRAPERS = [
+    DallasProbate,
+    TarrantProbate,
+    CollinProbate,
+    DentonProbate,
+    RockwallProbate,
+    KaufmanProbate,
+    EllisProbate,
+    JohnsonProbate,
+    HuntProbate,
 ]
 
 
@@ -81,32 +102,47 @@ def main() -> int:
 
     log.info("scraper results: %s", results)
 
-    # TODO: Phase 3 — per-county probate scrapers
+    # Phase 3 — probate scrapers. Each gets its own scrape_runs row via the
+    # separate ProbateScraperBase.run() so failures don't block the distress
+    # digest from sending.
+    probate_results: dict[str, dict] = {}
+    with get_conn() as conn:
+        for cls in PROBATE_SCRAPERS:
+            inst = cls()
+            if only and inst.source not in only:
+                continue
+            log.info("running probate scraper: %s", inst.source)
+            try:
+                probate_results[inst.source] = inst.run(conn, baseline=args.baseline)
+            except Exception:
+                log.exception("orchestrator caught probate crash")
+                probate_results[inst.source] = {"status": "failed", "error": "crash"}
+    log.info("probate results: %s", probate_results)
 
-    # Preview mode: always show baseline rows so the user sees real content
-    # without having to do a live-then-baseline dance first.
+    from alerts.digest import build_digest, send_digest
+    from alerts.probate_report import build_report, send_report
+
     if args.preview or args.no_email or args.baseline:
-        from alerts.digest import build_digest
         include_baseline = args.preview or args.baseline
         with get_conn() as conn:
-            subject, html = build_digest(conn, include_baseline=include_baseline)
-        log.info("(dry run) digest subject=%r html=%d chars", subject, len(html))
-        # Print HTML body to a file so the user can see the actual output in
-        # the workflow log via artifact.
+            d_subject, d_html = build_digest(conn, include_baseline=include_baseline)
+            p_subject, p_html = build_report(conn, include_baseline=include_baseline)
         with open("db/digest_preview.html", "w") as f:
-            f.write(html)
-        log.info("digest preview written to db/digest_preview.html")
+            f.write(d_html)
+        with open("db/probate_preview.html", "w") as f:
+            f.write(p_html)
+        log.info("(dry run) digest=%r probate=%r", d_subject, p_subject)
+        log.info("previews written to db/digest_preview.html + db/probate_preview.html")
         return 0
 
-    from alerts.digest import send_digest
+    # Send both emails. Capture exceptions so one failing doesn't block the other.
     with get_conn() as conn:
-        try:
-            send_digest(conn)
-        except Exception:
-            log.exception("digest send failed")
-            return 1
-
-    # TODO: send probate report
+        for send_fn, label in [(send_digest, "distress digest"),
+                               (send_report, "probate report")]:
+            try:
+                send_fn(conn)
+            except Exception:
+                log.exception("%s send failed", label)
     return 0
 
 
