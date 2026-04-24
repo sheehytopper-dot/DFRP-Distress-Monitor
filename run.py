@@ -49,6 +49,10 @@ def main() -> int:
                         help="Mark all new rows as baseline; suppresses digest.")
     parser.add_argument("--no-email", action="store_true",
                         help="Skip sending emails.")
+    parser.add_argument("--preview", action="store_true",
+                        help="Render the digest with baseline rows included so "
+                             "you can see what it looks like without a fresh run. "
+                             "Implies --no-email.")
     parser.add_argument("--only", default=None,
                         help="Comma-separated scraper source names to run (e.g. 'pbfcm,lgbs').")
     args = parser.parse_args()
@@ -77,15 +81,31 @@ def main() -> int:
 
     log.info("scraper results: %s", results)
 
-    # TODO: Phase 2 — per-county trustee scrapers
-    # TODO: Phase 2b — auction.com
     # TODO: Phase 3 — per-county probate scrapers
 
-    if args.no_email or args.baseline:
-        log.info("skipping email (baseline=%s, no_email=%s)", args.baseline, args.no_email)
+    # Preview mode: always show baseline rows so the user sees real content
+    # without having to do a live-then-baseline dance first.
+    if args.preview or args.no_email or args.baseline:
+        from alerts.digest import build_digest
+        include_baseline = args.preview or args.baseline
+        with get_conn() as conn:
+            subject, html = build_digest(conn, include_baseline=include_baseline)
+        log.info("(dry run) digest subject=%r html=%d chars", subject, len(html))
+        # Print HTML body to a file so the user can see the actual output in
+        # the workflow log via artifact.
+        with open("db/digest_preview.html", "w") as f:
+            f.write(html)
+        log.info("digest preview written to db/digest_preview.html")
         return 0
 
-    # TODO: send distress digest
+    from alerts.digest import send_digest
+    with get_conn() as conn:
+        try:
+            send_digest(conn)
+        except Exception:
+            log.exception("digest send failed")
+            return 1
+
     # TODO: send probate report
     return 0
 
