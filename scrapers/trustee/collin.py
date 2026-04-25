@@ -49,7 +49,7 @@ class CollinTrustee(TrusteeScraperBase):
                 # Fall back to rendering with Playwright: the list may be
                 # injected by JS after DOMContentLoaded.
                 log.info("collin: static fetch for %s found no links; trying Playwright", base)
-                rendered, _ = render_html(base, wait_ms=5000)
+                rendered, _, _ = render_html(base, wait_ms=5000)
                 if rendered:
                     soup = BeautifulSoup(rendered, "lxml")
                     links_from_base = [

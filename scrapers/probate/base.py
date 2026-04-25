@@ -81,6 +81,7 @@ class ProbateScraperBase:
         self.session.headers.update(_DEFAULT_HEADERS)
         self.filings_considered = 0
         self.drop_reasons: dict[str, int] = {}
+        self.sample_text: Optional[str] = None
 
     @property
     def source(self) -> str:
@@ -112,9 +113,10 @@ class ProbateScraperBase:
 
         import json
         drop_json = json.dumps(self.drop_reasons) if self.drop_reasons else None
+        sample = self.sample_text[:2000] if self.sample_text else None
         _finish_run(conn, run_id, _utcnow(), status,
                     self.filings_considered, rows_found, rows_new,
-                    drop_json, None, error)
+                    drop_json, sample, error)
         log.info("%s summary: considered=%d kept=%d new=%d drops=%s status=%s",
                  self.source, self.filings_considered, rows_found, rows_new,
                  self.drop_reasons or {}, status)
