@@ -33,7 +33,7 @@ class JohnsonTrustee(TrusteeScraperBase):
             html = r.text
         except Exception as e:
             log.warning("johnson landing static fetch failed (%s); trying Playwright", e)
-            html, captured_pdfs = render_html(LANDING, wait_ms=5000, capture_pdfs=True)
+            html, captured_pdfs, _ = render_html(LANDING, wait_ms=5000, capture_pdfs=True)
             if not html and not captured_pdfs:
                 raise RuntimeError(f"johnson landing fetch failed (static + Playwright): {e}") from e
 

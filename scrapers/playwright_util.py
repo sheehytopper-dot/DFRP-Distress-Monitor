@@ -26,20 +26,22 @@ def render_html(
     wait_ms: int = 5000,
     timeout_ms: int = 30000,
     capture_pdfs: bool = False,
-) -> tuple[str, list[str]]:
-    """Load URL in headless Chromium. Returns (rendered_html, captured_pdf_urls).
+    capture_json: bool = False,
+) -> tuple[str, list[str], list[dict]]:
+    """Load URL in headless Chromium. Returns (rendered_html, pdf_urls, json_responses).
 
-    capture_pdfs=True registers a response handler that records every response
-    whose Content-Type starts with application/pdf. That's how we discover
-    PDF URLs hidden behind JS viewers (CivicEngage, etc.).
+    capture_pdfs=True records every response with content-type application/pdf.
+    capture_json=True records {url, body} for every JSON response — used to
+    discover XHR endpoints on JS-rendered portals (Tyler Odyssey, etc.).
     """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         log.warning("playwright not installed; cannot render %s", url)
-        return "", []
+        return "", [], []
 
     pdf_urls: list[str] = []
+    json_responses: list[dict] = []
     html = ""
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -59,11 +61,17 @@ def render_html(
             )
             page = context.new_page()
 
-            if capture_pdfs:
+            if capture_pdfs or capture_json:
                 def on_response(resp):
                     ct = (resp.headers.get("content-type") or "").lower()
-                    if ct.startswith("application/pdf") or ".pdf" in resp.url.lower():
+                    if capture_pdfs and (ct.startswith("application/pdf") or ".pdf" in resp.url.lower()):
                         pdf_urls.append(resp.url)
+                    if capture_json and "json" in ct:
+                        try:
+                            body = resp.json()
+                        except Exception:
+                            return
+                        json_responses.append({"url": resp.url, "body": body})
                 page.on("response", on_response)
 
             try:
@@ -74,4 +82,4 @@ def render_html(
                 log.warning("playwright render failed for %s: %s", url, e)
         finally:
             browser.close()
-    return html, pdf_urls
+    return html, pdf_urls, json_responses

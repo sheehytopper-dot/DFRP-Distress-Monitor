@@ -107,7 +107,7 @@ class CivicPlusArchiveTrustee(TrusteeScraperBase):
             if not m:
                 continue
             adid = m.group(1)
-            _html, pdf_urls = render_html(item_url, wait_ms=5000, capture_pdfs=True)
+            _html, pdf_urls, _ = render_html(item_url, wait_ms=5000, capture_pdfs=True)
             for pdf_url in pdf_urls:
                 if adid in pdf_url:
                     return pdf_url.replace(adid, "{id}")
