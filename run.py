@@ -136,13 +136,28 @@ def main() -> int:
         return 0
 
     # Send both emails. Capture exceptions so one failing doesn't block the other.
+    email_status: dict[str, dict] = {}
     with get_conn() as conn:
-        for send_fn, label in [(send_digest, "distress digest"),
-                               (send_report, "probate report")]:
+        for label, send_fn in [("distress_digest", send_digest),
+                               ("probate_report", send_report)]:
             try:
-                send_fn(conn)
-            except Exception:
+                email_id = send_fn(conn)
+                email_status[label] = {"ok": True, "id": email_id}
+            except Exception as e:
                 log.exception("%s send failed", label)
+                email_status[label] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    # Loud status block — appears verbatim in the workflow log so a missing
+    # secret or rejected send is impossible to miss.
+    print("\n" + "=" * 60)
+    print("EMAIL STATUS")
+    print("=" * 60)
+    for label, status in email_status.items():
+        if status.get("ok"):
+            print(f"  {label:<18} SENT  resend_id={status.get('id')}")
+        else:
+            print(f"  {label:<18} FAILED  {status.get('error')}")
+    print("=" * 60)
     return 0
 
 
