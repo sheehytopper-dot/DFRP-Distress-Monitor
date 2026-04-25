@@ -136,16 +136,37 @@ def main() -> int:
         return 0
 
     # Send both emails. Capture exceptions so one failing doesn't block the other.
+    # Probate is suppressed when there are zero filings AND zero successful
+    # probate scrapers — sending an all-failures email every week is just noise
+    # while the per-county portals remain unimplemented.
     email_status: dict[str, dict] = {}
     with get_conn() as conn:
-        for label, send_fn in [("distress_digest", send_digest),
-                               ("probate_report", send_report)]:
+        probate_filings_count = conn.execute(
+            "SELECT COUNT(*) FROM probate_filings"
+        ).fetchone()[0]
+        successful_probate_runs = conn.execute(
+            "SELECT COUNT(*) FROM scrape_runs "
+            "WHERE source LIKE 'probate_%' AND status='ok' AND rows_found > 0"
+        ).fetchone()[0]
+        suppress_probate = probate_filings_count == 0 and successful_probate_runs == 0
+        if suppress_probate:
+            log.info("probate report suppressed: no filings, no successful probate scrapers")
+            email_status["probate_report"] = {"ok": False, "error": "suppressed (no data yet)"}
+
+        try:
+            email_id = send_digest(conn)
+            email_status["distress_digest"] = {"ok": True, "id": email_id}
+        except Exception as e:
+            log.exception("distress digest send failed")
+            email_status["distress_digest"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        if not suppress_probate:
             try:
-                email_id = send_fn(conn)
-                email_status[label] = {"ok": True, "id": email_id}
+                email_id = send_report(conn)
+                email_status["probate_report"] = {"ok": True, "id": email_id}
             except Exception as e:
-                log.exception("%s send failed", label)
-                email_status[label] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+                log.exception("probate report send failed")
+                email_status["probate_report"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     # Loud status block — appears verbatim in the workflow log so a missing
     # secret or rejected send is impossible to miss.
