@@ -34,31 +34,32 @@ def build_digest(
     conn: sqlite3.Connection,
     *,
     today: Optional[str] = None,
-    include_baseline: bool = False,
+    include_baseline: bool = True,  # legacy kwarg; baseline filter is no longer applied
 ) -> tuple[str, str]:
     """Return (subject, html_body).
 
-    include_baseline=True disables the 'baseline' filter — for previewing
-    the digest against seed data without running a real weekly cycle first.
+    The 'new this week' signal is first_seen_at within 7 days. We used to
+    also filter out baseline=1 rows but that excluded everything inserted
+    during the dev/test cycle. Now the only filters are: status='active',
+    first_seen_at recent, and (sale_date upcoming OR unknown).
     """
     today = today or date.today().isoformat()
     week_ago = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
     conn.row_factory = sqlite3.Row
-    base_cond = "" if include_baseline else "AND baseline=0"
 
     new_this_week = list(conn.execute(
-        f"""SELECT * FROM distress_notices
-            WHERE status='active' {base_cond}
-              AND first_seen_at >= ?
-              AND (sale_date IS NULL OR sale_date >= ?)
-            ORDER BY amount_usd DESC""",
+        """SELECT * FROM distress_notices
+           WHERE status='active'
+             AND first_seen_at >= ?
+             AND (sale_date IS NULL OR sale_date >= ?)
+           ORDER BY amount_usd DESC""",
         (week_ago, today),
     ))
     still_active_count = conn.execute(
-        f"""SELECT COUNT(*) FROM distress_notices
-            WHERE status='active' {base_cond}
-              AND first_seen_at < ?
-              AND (sale_date IS NULL OR sale_date >= ?)""",
+        """SELECT COUNT(*) FROM distress_notices
+           WHERE status='active'
+             AND first_seen_at < ?
+             AND (sale_date IS NULL OR sale_date >= ?)""",
         (week_ago, today),
     ).fetchone()[0]
     dropped_this_week = conn.execute(

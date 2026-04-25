@@ -31,38 +31,35 @@ def build_report(
     conn: sqlite3.Connection,
     *,
     today: Optional[str] = None,
-    include_baseline: bool = False,
+    include_baseline: bool = True,  # legacy kwarg; baseline filter is no longer applied
 ) -> tuple[str, str]:
     today = today or date.today().isoformat()
     week_ago = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
     year_ago = (date.fromisoformat(today) - timedelta(days=365)).isoformat()
     conn.row_factory = sqlite3.Row
 
-    base_cond = "" if include_baseline else "AND f.baseline=0"
-
     new_filings = list(conn.execute(
-        f"""SELECT f.*, a.display_name AS attorney_display, a.firm AS attorney_firm
-            FROM probate_filings f
-            LEFT JOIN probate_attorneys a ON f.attorney_id = a.id
-            WHERE f.first_seen_at >= ? {base_cond}
-            ORDER BY f.filed_date DESC, f.county""",
+        """SELECT f.*, a.display_name AS attorney_display, a.firm AS attorney_firm
+           FROM probate_filings f
+           LEFT JOIN probate_attorneys a ON f.attorney_id = a.id
+           WHERE f.first_seen_at >= ?
+           ORDER BY f.filed_date DESC, f.county""",
         (week_ago,),
     ))
 
     # Attorney leaderboard: rolling 12 months, count filings with real-estate
     # likely (TRUE) or unknown (NULL). Exclude only the explicit FALSE.
     leaderboard_rows = list(conn.execute(
-        f"""SELECT a.display_name, a.firm, a.phone, a.email,
-                   COUNT(DISTINCT f.id) AS case_count,
-                   GROUP_CONCAT(DISTINCT f.county) AS counties
-            FROM probate_attorneys a
-            JOIN probate_filings f ON f.attorney_id = a.id
-            WHERE (f.filed_date >= ? OR f.first_seen_at >= ?)
-              AND (f.involves_real_estate IS NULL OR f.involves_real_estate = 1)
-              {base_cond}
-            GROUP BY a.id
-            ORDER BY case_count DESC, a.display_name ASC
-            LIMIT 25""",
+        """SELECT a.display_name, a.firm, a.phone, a.email,
+                  COUNT(DISTINCT f.id) AS case_count,
+                  GROUP_CONCAT(DISTINCT f.county) AS counties
+           FROM probate_attorneys a
+           JOIN probate_filings f ON f.attorney_id = a.id
+           WHERE (f.filed_date >= ? OR f.first_seen_at >= ?)
+             AND (f.involves_real_estate IS NULL OR f.involves_real_estate = 1)
+           GROUP BY a.id
+           ORDER BY case_count DESC, a.display_name ASC
+           LIMIT 25""",
         (year_ago, year_ago),
     ))
 
