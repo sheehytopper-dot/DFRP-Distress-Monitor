@@ -56,7 +56,8 @@ class DallasProbate(ProbateScraperBase):
             raise RuntimeError("dallas_probate: playwright not installed")
 
         json_responses: list[dict] = []
-        endpoints_seen: list[str] = []
+        all_response_endpoints: list[tuple[str, str]] = []  # (url, content_type)
+        diagnostics: list[str] = []
 
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -78,9 +79,9 @@ class DallasProbate(ProbateScraperBase):
 
                 def on_response(resp):
                     ct = (resp.headers.get("content-type") or "").lower()
+                    all_response_endpoints.append((resp.url, ct))
                     if "json" not in ct:
                         return
-                    endpoints_seen.append(_url_path(resp.url))
                     try:
                         body = resp.json()
                     except Exception:
@@ -93,29 +94,51 @@ class DallasProbate(ProbateScraperBase):
                 page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(3000)
 
-                # Submit a search for each probate keyword. Tyler Odyssey
-                # Smart Search treats this as a free-text query that matches
-                # case type, party names, attorneys.
+                # Inspect every visible text input on the page so we can see
+                # what the search form actually looks like.
+                inputs_info = page.evaluate("""
+                    () => Array.from(document.querySelectorAll('input,button,a'))
+                        .slice(0, 80)
+                        .map(el => ({
+                            tag: el.tagName,
+                            type: el.type || '',
+                            name: el.name || '',
+                            id: el.id || '',
+                            placeholder: el.placeholder || '',
+                            text: (el.innerText || '').slice(0, 40),
+                            class: (el.className || '').toString().slice(0, 60),
+                        }))
+                """)
+                diagnostics.append(f"[dashboard] {len(inputs_info)} interactive elements:")
+                for el in inputs_info[:30]:
+                    diagnostics.append(f"  {el['tag']} type={el['type']} name={el['name']!r} "
+                                       f"id={el['id']!r} placeholder={el['placeholder']!r} "
+                                       f"text={el['text']!r} class={el['class']!r}")
+
                 for query in ("muniment", "heirship"):
                     try:
                         _submit_smart_search(page, query)
-                        page.wait_for_timeout(5000)  # let XHR settle
+                        page.wait_for_timeout(5000)
+                        post_url = page.url
+                        diagnostics.append(f"[after '{query}' submit] page.url={post_url}")
                     except Exception as e:
-                        log.warning("dallas_probate: '%s' search failed: %s", query, e)
+                        diagnostics.append(f"[search '{query}' FAILED] {type(e).__name__}: {e}")
             finally:
                 browser.close()
 
-        log.info("dallas_probate: captured %d JSON responses across %d endpoints",
-                 len(json_responses), len(set(endpoints_seen)))
+        log.info("dallas_probate: %d JSON / %d total responses",
+                 len(json_responses), len(all_response_endpoints))
 
-        # Diagnostic dump for next-run iteration.
-        unique_endpoints = sorted(set(endpoints_seen))
-        if unique_endpoints:
-            self.sample_text = "JSON endpoints captured:\n" + "\n".join(unique_endpoints)
-        elif json_responses:
-            self.sample_text = json.dumps(json_responses[0])[:2000]
-        else:
-            self.sample_text = "No JSON responses captured. Search form interaction may have failed."
+        # Build a verbose sample_text covering everything we learned.
+        diagnostics.append(f"\nAll response endpoints ({len(all_response_endpoints)}):")
+        for url, ct in all_response_endpoints[:40]:
+            diagnostics.append(f"  [{ct[:30]}] {url[:140]}")
+        diagnostics.append(f"\nJSON responses with case-shaped objects:")
+        for resp in json_responses[:5]:
+            cases = list(_walk_case_objects(resp["body"]))
+            diagnostics.append(f"  url={resp['url'][:100]} cases_found={len(cases)}")
+
+        self.sample_text = "\n".join(diagnostics)[:2000]
 
         cutoff = (date.today() - timedelta(days=N_DAYS_BACK)).isoformat()
         seen: set[str] = set()
