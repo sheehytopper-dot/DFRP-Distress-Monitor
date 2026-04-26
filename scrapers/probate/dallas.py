@@ -1,21 +1,23 @@
 """Dallas County probate scraper.
 
 Source: courtsportal.dallascounty.org/DALLASPROD — Tyler Odyssey
-'Smart Search' portal for Dallas County. Public access, no login.
+Smart Search portal. Public access, no login.
 
 Strategy:
-1. Open the portal landing page in headless Chromium with capture_json=True.
-2. Walk every captured JSON response for objects shaped like a case row
-   (CaseId/CaseNumber/CaseType/FileDate/CaseStyle).
-3. Filter to muniment-of-title and heirship cases filed in the last
-   N_DAYS_BACK days.
-4. Yield ProbateFiling rows.
+1. Open the Smart Search dashboard in headless Chromium.
+2. Submit a Smart Search query for 'muniment' to surface
+   muniment-of-title cases. Capture the resulting XHR JSON.
+3. Submit a second query for 'heirship'.
+4. Walk both payloads for case rows, filter by file date (last
+   N_DAYS_BACK days), yield ProbateFiling records.
 
-This first cut is diagnostic-leaning: if zero JSON responses are
-captured (e.g., the page only fires XHRs after a search-form submit),
-the next run's sample_text will show what the rendered HTML looks like
-so we can refine to either auto-submit the search form or hit a
-discovered XHR endpoint directly.
+Tyler Odyssey 2021+ Smart Search renders results via XHR returning
+JSON; we register a response listener before submitting so we catch
+the response regardless of what selectors the page uses internally.
+
+The form-interaction selectors are best-effort. If they fail, the
+next run's sample_text shows what HTML is on the page so we can
+narrow them.
 """
 import json
 import logging
@@ -23,7 +25,6 @@ import re
 from datetime import date, timedelta
 from typing import Any, Iterator, Optional
 
-from scrapers.playwright_util import render_html
 from scrapers.probate.base import ProbateFiling, ProbateScraperBase
 
 log = logging.getLogger(__name__)
@@ -31,11 +32,10 @@ log = logging.getLogger(__name__)
 PORTAL = "https://courtsportal.dallascounty.org/DALLASPROD"
 DASHBOARD_URL = f"{PORTAL}/Home/Dashboard/29"
 
-N_DAYS_BACK = 14  # how far back to look for filings on each run
+N_DAYS_BACK = 14
 
 _PROBATE_TYPE_RE = re.compile(r"muniment\s+of\s+title|heirship", re.I)
 
-# Property keys we look for to identify case-shaped JSON objects.
 _CASE_INDICATOR_KEYS = {
     "CaseId", "CaseID", "case_id",
     "CaseNumber", "caseNumber", "case_number",
@@ -50,48 +50,125 @@ class DallasProbate(ProbateScraperBase):
     throttle_s = 0.5
 
     def fetch(self) -> Iterator[ProbateFiling]:
-        log.info("dallas_probate: loading %s", DASHBOARD_URL)
-        html, _pdf_urls, json_responses = render_html(
-            DASHBOARD_URL,
-            wait_ms=8000,
-            capture_pdfs=False,
-            capture_json=True,
-        )
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise RuntimeError("dallas_probate: playwright not installed")
 
-        if not html:
-            raise RuntimeError("dallas_probate: Playwright returned no HTML — "
-                               "site may be blocking headless or unreachable")
+        json_responses: list[dict] = []
+        endpoints_seen: list[str] = []
 
-        log.info("dallas_probate: rendered %d chars HTML, captured %d JSON responses",
-                 len(html), len(json_responses))
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+            try:
+                context = browser.new_context(
+                    user_agent=("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                                "Version/17.0 Safari/605.1.15"),
+                    viewport={"width": 1440, "height": 900},
+                    locale="en-US",
+                )
+                context.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                )
+                page = context.new_page()
 
-        # Diagnostic: stash a summary of what XHRs fired into sample_text.
-        # If the next run's report shows e.g. /Search/SmartSearchResults in
-        # this list, we have a target endpoint to hit directly going forward.
-        endpoints = sorted({_url_path(r["url"]) for r in json_responses})
-        if endpoints:
-            self.sample_text = "Captured JSON endpoints:\n" + "\n".join(endpoints)
+                def on_response(resp):
+                    ct = (resp.headers.get("content-type") or "").lower()
+                    if "json" not in ct:
+                        return
+                    endpoints_seen.append(_url_path(resp.url))
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        return
+                    json_responses.append({"url": resp.url, "body": body})
+
+                page.on("response", on_response)
+
+                log.info("dallas_probate: loading %s", DASHBOARD_URL)
+                page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(3000)
+
+                # Submit a search for each probate keyword. Tyler Odyssey
+                # Smart Search treats this as a free-text query that matches
+                # case type, party names, attorneys.
+                for query in ("muniment", "heirship"):
+                    try:
+                        _submit_smart_search(page, query)
+                        page.wait_for_timeout(5000)  # let XHR settle
+                    except Exception as e:
+                        log.warning("dallas_probate: '%s' search failed: %s", query, e)
+            finally:
+                browser.close()
+
+        log.info("dallas_probate: captured %d JSON responses across %d endpoints",
+                 len(json_responses), len(set(endpoints_seen)))
+
+        # Diagnostic dump for next-run iteration.
+        unique_endpoints = sorted(set(endpoints_seen))
+        if unique_endpoints:
+            self.sample_text = "JSON endpoints captured:\n" + "\n".join(unique_endpoints)
+        elif json_responses:
+            self.sample_text = json.dumps(json_responses[0])[:2000]
         else:
-            # No JSON fired — fall back to first 2000 chars of rendered HTML
-            # so we can see what the page looks like and refine our approach.
-            self.sample_text = html[:2000]
+            self.sample_text = "No JSON responses captured. Search form interaction may have failed."
 
         cutoff = (date.today() - timedelta(days=N_DAYS_BACK)).isoformat()
-        seen_case_numbers: set[str] = set()
-
+        seen: set[str] = set()
         for resp in json_responses:
             for case in _walk_case_objects(resp["body"]):
-                yield from _maybe_yield(case, resp["url"], cutoff,
-                                        seen_case_numbers)
+                yield from _maybe_yield(case, resp["url"], cutoff, seen)
+
+
+def _submit_smart_search(page, query: str) -> None:
+    """Type a query into the Smart Search input and click search.
+
+    Selectors are best-effort across Tyler Odyssey 2021+ variations:
+    - the search input is usually <input type=text> inside the SmartSearch
+      panel; placeholder is something like 'Search by Name, Case Number...'
+    - submit can be a button labelled 'Search' or with a search icon.
+    """
+    # Make sure we're back on the dashboard for each query.
+    page.goto(DASHBOARD_URL, wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(2000)
+
+    # Try several selectors in order of specificity.
+    for sel in [
+        "input.k-textbox",
+        "input[name='SearchCriteria']",
+        "input[placeholder*='Name' i]",
+        "input[type='text']",
+    ]:
+        try:
+            page.locator(sel).first.fill(query, timeout=3000)
+            break
+        except Exception:
+            continue
+    else:
+        raise RuntimeError("could not find search input")
+
+    for sel in [
+        "button:has-text('Search')",
+        "input[type='submit'][value='Search']",
+        "a:has-text('Search')",
+    ]:
+        try:
+            page.locator(sel).first.click(timeout=3000)
+            return
+        except Exception:
+            continue
+    raise RuntimeError("could not find search submit")
 
 
 def _url_path(url: str) -> str:
-    """Strip query string for endpoint summary."""
     return url.split("?", 1)[0]
 
 
 def _walk_case_objects(body: Any) -> Iterator[dict]:
-    """Yield dicts likely to be a case row."""
     stack = [body]
     seen = 0
     while stack and seen < 50000:
@@ -133,7 +210,6 @@ def _maybe_yield(case: dict, source_url: str, cutoff_date: str,
             return
 
     style = _pick(case, "CaseStyle", "caseStyle", "case_style", "Style", "style")
-    raw_text = json.dumps(case)
 
     yield ProbateFiling(
         county="dallas",
@@ -144,5 +220,5 @@ def _maybe_yield(case: dict, source_url: str, cutoff_date: str,
         filed_date=str(file_date)[:10] if file_date else None,
         decedent_name=str(style) if style else None,
         url=f"{PORTAL}/Search/CaseInformation?caseNumber={case_number}",
-        raw_text=raw_text,
+        raw_text=json.dumps(case),
     )
